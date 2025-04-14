@@ -1,0 +1,115 @@
+# ------------------------------------------------------
+# 📈 PM2.5 Forecasting using SARIMA Model (Auto-detect)
+# Author: Samia | Final Version with Compact Visualization
+# ------------------------------------------------------
+
+# STEP 1: Import Required Libraries
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.dates import DateFormatter
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from datetime import datetime
+import warnings
+warnings.filterwarnings("ignore")
+
+# Set Matplotlib Plot Style
+plt.style.use('ggplot')
+
+# STEP 2: Load PM2.5 Data
+file_path = r'E:\BSMRAAU Research\Work with  Bari sir\PM2.5.csv'  # Update if necessary
+print("📂 Loading data from:", file_path)
+
+df = pd.read_csv(file_path)
+
+# STEP 3: Prepare Data
+print("🛠️ Preparing and cleaning data...")
+df['date'] = pd.to_datetime(df['date'])
+df = df.rename(columns={'date': 'ds', 'value': 'y'})
+df['y'] = pd.to_numeric(df['y'], errors='coerce')
+df.set_index('ds', inplace=True)
+df = df.resample('M').mean()   # Resample to monthly average
+df = df.dropna()               # Remove missing entries
+print(f"✅ Data cleaned. Total monthly entries: {len(df)}")
+
+# STEP 4: Check Forecasting Requirement
+last_date = df.index.max()
+today = pd.to_datetime(datetime.today().date())
+forecast_months = 48
+forecast_index = pd.date_range(start=last_date + pd.offsets.MonthBegin(1), periods=forecast_months, freq='M')
+
+if last_date >= today:
+    print(f"✅ Forecasting skipped. Data is current up to {last_date.date()}")
+
+    # Plot only historical data
+    plt.figure(figsize=(14, 6))
+    plt.plot(df.index, df['y'], label='PM2.5 Data', color='black', linewidth=2)
+    plt.title('PM2.5 Concentration Over Time (No Forecast Needed)', fontsize=16, fontweight='bold')
+    plt.xlabel('Date')
+    plt.ylabel('PM2.5 Concentration (µg/m³)')
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+else:
+    print(f"📅 Forecasting Required")
+    print(f"🧪 Last available data: {last_date.date()} | Today's date: {today.date()}")
+    
+    try:
+        # STEP 5: Fit SARIMA Model
+        print("🔍 Fitting SARIMA model (1,1,1)(1,1,1,12)...")
+        model = SARIMAX(df['y'],
+                        order=(1, 1, 1),
+                        seasonal_order=(1, 1, 1, 12),
+                        enforce_stationarity=False,
+                        enforce_invertibility=False)
+
+        sarima_result = model.fit(disp=False)
+        print("✅ SARIMA model fitted successfully.")
+
+        # STEP 6: Forecast Future Values
+        forecast = sarima_result.get_forecast(steps=forecast_months)
+        forecast_mean = forecast.predicted_mean
+        forecast_ci = forecast.conf_int()
+
+        # Combine forecast and dates
+        forecast_df = pd.DataFrame({
+            'Date': forecast_index,
+            'Forecast_PM2.5': forecast_mean.values,
+            'Lower_CI': forecast_ci.iloc[:, 0].values,
+            'Upper_CI': forecast_ci.iloc[:, 1].values
+        })
+
+        # Optional: Save to CSV
+        export_path = r"E:\BSMRAAU Research\Work with  Bari sir\PM2.5_Forecast_SARIMA.csv"
+        forecast_df.to_csv(export_path, index=False)
+        print(f"📁 Forecast data saved to: {export_path}")
+
+        # STEP 7: Compact Visualization
+        print("📊 Plotting historical and forecast data (compact layout)...")
+
+        plt.figure(figsize=(14, 6))
+        plt.plot(df.index, df['y'], label='Historical PM2.5', color='black', linewidth=2)
+        plt.plot(forecast_index, forecast_mean, label='Forecast PM2.5', color='darkgreen', linestyle='--', linewidth=2)
+        plt.fill_between(forecast_index, forecast_ci.iloc[:, 0], forecast_ci.iloc[:, 1],
+                         color='green', alpha=0.2, label='95% Confidence Interval')
+
+        plt.axvline(x=last_date, color='red', linestyle='--', linewidth=1.5)
+        plt.text(last_date, plt.ylim()[1]*0.95, 'Forecast Starts', color='red', fontsize=10, ha='left', va='bottom')
+
+        plt.title('PM2.5 Forecast Using SARIMA Model', fontsize=16, fontweight='bold', pad=15)
+        plt.xlabel('Date', fontsize=11)
+        plt.ylabel('PM2.5 Concentration (µg/m³)', fontsize=11)
+
+        plt.xticks(rotation=45)
+        plt.gca().xaxis.set_major_formatter(DateFormatter('%Y-%m'))
+        plt.tick_params(axis='both', which='major', labelsize=10)
+
+        plt.grid(True, linestyle='--', alpha=0.5)
+        plt.legend(fontsize=10, loc='upper left')
+        plt.subplots_adjust(left=0.08, right=0.98, top=0.92, bottom=0.15)
+        plt.tight_layout()
+        plt.show()
+
+    except Exception as e:
+        print("❌ SARIMA model fitting failed:", str(e))
