@@ -1,0 +1,93 @@
+# --------------------------------------
+# PM2.5 Forecasting (only when needed)
+# Author: Samia
+# --------------------------------------
+
+# STEP 0: Install Prophet if not already installed
+try:
+    from prophet import Prophet
+except ImportError:
+    import sys
+    !{sys.executable} -m pip install prophet
+    from prophet import Prophet
+
+# STEP 1: Import required libraries
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.dates import DateFormatter
+from datetime import datetime
+
+# Use a compatible plot style
+plt.style.use('ggplot')
+
+# STEP 2: Load and Prepare PM2.5 Dataset
+file_path = r'E:\BSMRAAU Research\Work with  Bari sir\PM2.5.csv'  # ✅ Update path for PM2.5
+df = pd.read_csv(file_path)
+
+# Ensure proper datetime format and Prophet-compatible columns
+df['date'] = pd.to_datetime(df['date'])
+df = df.rename(columns={'date': 'ds', 'value': 'y'})
+df['y'] = df['y'].astype(float)
+
+# STEP 3: Check if forecasting is needed
+last_date = df['ds'].max()
+today = pd.to_datetime(datetime.today().date())
+
+if last_date >= today:
+    print(f"✅ Forecasting skipped. PM2.5 data is already up to date (until: {last_date.date()})")
+
+    # Plot existing PM2.5 data
+    plt.figure(figsize=(14, 6))
+    plt.plot(df['ds'], df['y'], label='PM2.5 Data', color='black')
+    plt.title('PM2.5 Concentration Over Time (No Forecast Needed)', fontsize=16, fontweight='bold')
+    plt.xlabel('Date')
+    plt.ylabel('PM2.5 Concentration (µg/m³)')
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+else:
+    print(f"📅 Forecasting required. Last data point: {last_date.date()} | Today: {today.date()}")
+
+    # STEP 4: Train Prophet Model
+    model = Prophet(
+        daily_seasonality=False,
+        weekly_seasonality=True,
+        yearly_seasonality=True,
+        seasonality_mode='additive',
+        changepoint_prior_scale=0.05
+    )
+    model.fit(df)
+
+    # STEP 5: Forecast Future PM2.5 Values
+    forecast_months = 48
+    future = model.make_future_dataframe(periods=forecast_months, freq='M')
+    forecast = model.predict(future)
+
+    # STEP 6: Plot Forecast
+    plt.figure(figsize=(16, 8))
+    plt.plot(df['ds'], df['y'], label='Historical PM2.5', color='black', linewidth=1.8)
+    plt.plot(forecast['ds'], forecast['yhat'], label='Forecast PM2.5', color='royalblue', linestyle='--', linewidth=2)
+    plt.fill_between(forecast['ds'], forecast['yhat_lower'], forecast['yhat_upper'],
+                     color='skyblue', alpha=0.3, label='95% Confidence Interval')
+
+    plt.axvline(x=last_date, color='red', linestyle='--', linewidth=1.5)
+    plt.text(last_date, plt.ylim()[1]*0.95, 'Forecast Begins', color='red', fontsize=11)
+
+    # Final formatting
+    plt.title('PM2.5 Forecast Using Facebook Prophet', fontsize=18, fontweight='bold')
+    plt.xlabel('Date', fontsize=13)
+    plt.ylabel('PM2.5 Concentration (µg/m³)', fontsize=13)
+    plt.gca().xaxis.set_major_formatter(DateFormatter('%Y-%m'))
+    plt.xticks(rotation=45)
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.legend(fontsize=12)
+    plt.tight_layout()
+    plt.show()
+
+    # STEP 7: Forecast Component Analysis
+    print("\n🧩 Displaying forecast components...")
+    model.plot_components(forecast)
+    plt.tight_layout()
+    plt.show()
