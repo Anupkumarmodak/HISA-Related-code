@@ -1,0 +1,86 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.dates import DateFormatter
+from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+# Step 1: Load the PM10 data
+file_path = r'E:\BSMRAAU Research\Work with  Bari sir\PM10.csv'  # Update path to PM10 CSV
+df = pd.read_csv(file_path)
+
+# Step 2: Prepare the time series data
+df['date'] = pd.to_datetime(df['date'])
+df.set_index('date', inplace=True)
+time_series = df['value'].astype(float)
+
+# Step 3: Decompose the time series (trend + seasonal)
+result = seasonal_decompose(time_series, model='additive', period=365)
+
+# Plot decomposition (excluding residuals)
+plt.figure(figsize=(14, 7))
+plt.suptitle("PM10 Time Series Decomposition", fontsize=16, fontweight='bold')
+
+plt.subplot(311)
+plt.plot(result.observed, label='Observed', color='black')
+plt.title('Observed PM10 Concentration')
+plt.ylabel('µg/m³')
+plt.grid(True)
+plt.legend()
+
+plt.subplot(312)
+plt.plot(result.trend, label='Trend', color='orange')
+plt.title('Trend Component')
+plt.ylabel('µg/m³')
+plt.grid(True)
+plt.legend()
+
+plt.subplot(313)
+plt.plot(result.seasonal, label='Seasonal', color='green')
+plt.title('Seasonal Component')
+plt.ylabel('µg/m³')
+plt.grid(True)
+plt.legend()
+
+plt.tight_layout(rect=[0, 0, 1, 0.96])
+plt.show()
+
+# Step 4: Fit a Seasonal ARIMA model
+p, d, q = 1, 0, 0
+P, D, Q, s = 1, 1, 0, 12
+
+model = SARIMAX(time_series, order=(p, d, q), seasonal_order=(P, D, Q, s))
+model_fit = model.fit(disp=False)
+
+# Step 5: Forecast
+forecast_steps = 48
+forecast = model_fit.get_forecast(steps=forecast_steps)
+confidence_intervals = forecast.conf_int()
+forecast_values = forecast.predicted_mean
+forecast_index = pd.date_range(start=time_series.index[-1], periods=forecast_steps + 1, freq='M')[1:]
+
+# Step 6: Detailed Forecast Plot
+plt.figure(figsize=(16, 7))
+plt.plot(time_series, label='Historical PM10', color='black', linewidth=1.8)
+plt.plot(forecast_index, forecast_values, label='Forecast PM10', color='royalblue', linestyle='--', linewidth=2)
+plt.fill_between(forecast_index, confidence_intervals.iloc[:, 0], confidence_intervals.iloc[:, 1], 
+                 color='skyblue', alpha=0.3, label='95% Confidence Interval')
+
+# Vertical line and annotation for forecast start
+plt.axvline(x=forecast_index[0], color='red', linestyle='--', linewidth=1.2)
+plt.text(forecast_index[0], plt.ylim()[1]*0.95, 'Forecast Begins', color='red', fontsize=10)
+
+# Labels and title
+plt.title(f'PM10 Forecast Using SARIMA({p},{d},{q})({P},{D},{Q})[{s}] Model\n', fontsize=16, fontweight='bold')
+plt.xlabel('Date', fontsize=13)
+plt.ylabel('PM10 Concentration (µg/m³)', fontsize=13)
+
+# Date formatting
+plt.gca().xaxis.set_major_formatter(DateFormatter('%Y-%m'))
+
+# Grid and legend
+plt.grid(True, linestyle='--', alpha=0.5)
+plt.legend(fontsize=11)
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
