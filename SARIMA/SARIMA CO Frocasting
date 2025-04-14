@@ -1,0 +1,71 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+import statsmodels.api as sm
+
+# Step 1: Load the data
+file_path = r'E:\BSMRAAU Research\Work with  Bari sir\CO.csv'
+df = pd.read_csv(file_path)
+
+# Step 2: Prepare the time series data
+df['date'] = pd.to_datetime(df['date'])
+df.set_index('date', inplace=True)
+
+# Use 'value' as the NO2 concentration data
+time_series = df['value'].astype(float)
+
+# Step 3: Decompose the time series to check components (optional)
+result = seasonal_decompose(time_series, model='additive', period=365)
+
+# Plot the decomposition (optional)
+plt.figure(figsize=(12, 8))
+plt.subplot(411)
+plt.plot(result.observed, label='Observed')
+plt.legend(loc='upper left')
+plt.subplot(412)
+plt.plot(result.trend, label='Trend')
+plt.legend(loc='upper left')
+plt.subplot(413)
+plt.plot(result.seasonal, label='Seasonal')
+plt.legend(loc='upper left')
+plt.subplot(414)
+plt.plot(result.resid, label='Residual')
+plt.legend(loc='upper left')
+plt.tight_layout()
+plt.show()
+
+# Step 4: Fit a Seasonal ARIMA model
+# Define the order of the model based on (p, d, q)(P, D, Q, s)
+# Example: SARIMA(0,0,1)(0,1,1,12) as shown in the image
+
+# Set the model order (modify these values based on your data analysis)
+p, d, q = 0, 0, 0
+P, D, Q, s = 0, 1, 1, 12
+
+# Fit the model
+model = SARIMAX(time_series, order=(p, d, q), seasonal_order=(P, D, Q, s))
+model_fit = model.fit(disp=False)
+
+# Step 5: Forecast the future values
+# Forecasting for the next 48 months (4 years)
+forecast_steps = 48
+forecast = model_fit.get_forecast(steps=forecast_steps)
+
+# Get the confidence intervals
+confidence_intervals = forecast.conf_int()
+forecast_values = forecast.predicted_mean
+forecast_index = pd.date_range(start=time_series.index[-1], periods=forecast_steps + 1, freq='M')[1:]
+
+# Plot the forecast with the observed data
+plt.figure(figsize=(12, 6))
+plt.plot(time_series, label='Observed', color='black')
+plt.plot(forecast_index, forecast_values, label='Forecast', color='blue')
+plt.fill_between(forecast_index, confidence_intervals.iloc[:, 0], confidence_intervals.iloc[:, 1], 
+                 color='blue', alpha=0.3)
+plt.title(f'Forecasts from SARIMA({p},{d},{q})({P},{D},{Q})[{s}]')
+plt.xlabel('Year')
+plt.ylabel('NO2 Concentration')
+plt.legend()
+plt.show()
