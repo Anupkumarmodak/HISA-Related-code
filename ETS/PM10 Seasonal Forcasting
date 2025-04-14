@@ -1,0 +1,95 @@
+# --------------------------------------
+# PM10 Forecasting with ETS (Only if Needed)
+# Author: Samia (Final Fixed Version)
+# --------------------------------------
+
+# STEP 1: Import Required Libraries
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.dates import DateFormatter
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
+from datetime import datetime
+
+# Plot Style
+plt.style.use('ggplot')
+
+# STEP 2: Load PM10 Data
+file_path = r'E:\BSMRAAU Research\Work with  Bari sir\PM10.csv'  # ✅ Updated path for PM10
+df = pd.read_csv(file_path)
+
+# STEP 3: Prepare Data
+df['date'] = pd.to_datetime(df['date'])
+df = df.rename(columns={'date': 'ds', 'value': 'y'})
+df['y'] = pd.to_numeric(df['y'], errors='coerce')  # Handle non-numeric
+df.set_index('ds', inplace=True)
+df = df.resample('M').mean()  # Monthly average
+df = df.dropna()  # ✅ Drop missing values
+
+# STEP 4: Check Forecast Requirement
+last_date = df.index.max()
+today = pd.to_datetime(datetime.today().date())
+
+if last_date >= today:
+    print(f"✅ Forecasting skipped. PM10 data is already up to date (until: {last_date.date()})")
+
+    # Plot historical data
+    plt.figure(figsize=(14, 6))
+    plt.plot(df.index, df['y'], label='PM10 Data', color='black')
+    plt.title('PM10 Concentration Over Time (No Forecast Needed)', fontsize=16, fontweight='bold')
+    plt.xlabel('Date')
+    plt.ylabel('PM10 Concentration (µg/m³)')
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+else:
+    print(f"📅 Forecasting required. Last data point: {last_date.date()} | Today: {today.date()}")
+    print(f"🧪 Total usable monthly data points: {len(df)}")
+
+    forecast_months = 48
+    forecast_index = pd.date_range(start=last_date + pd.offsets.MonthBegin(1), periods=forecast_months, freq='M')
+
+    try:
+        if len(df) >= 24:
+            ets_model = ExponentialSmoothing(
+                df['y'],
+                trend='add',
+                seasonal='add',
+                seasonal_periods=12,
+                initialization_method='estimated'
+            ).fit()
+            print("✅ Seasonal ETS model fitted (with trend + seasonality).")
+        elif len(df) >= 10:
+            ets_model = ExponentialSmoothing(
+                df['y'],
+                trend='add',
+                seasonal=None,
+                initialization_method='estimated'
+            ).fit()
+            print("⚠️ Fallback to trend-only ETS model (insufficient data for seasonal).")
+        else:
+            raise ValueError("❌ Not enough clean data to forecast. Need at least 10 points.")
+
+        forecast_values = ets_model.forecast(steps=forecast_months)
+
+        # Plot forecast
+        plt.figure(figsize=(16, 8))
+        plt.plot(df.index, df['y'], label='Historical PM10', color='black', linewidth=1.8)
+        plt.plot(forecast_index, forecast_values, label='Forecast PM10', color='darkgreen', linestyle='--', linewidth=2)
+
+        plt.axvline(x=last_date, color='red', linestyle='--', linewidth=1.5)
+        plt.text(last_date, plt.ylim()[1]*0.95, 'Forecast Begins', color='red', fontsize=11)
+
+        plt.title(' PM10 Forecast Using ETS (Exponential Smoothing)', fontsize=18, fontweight='bold')
+        plt.xlabel('Date', fontsize=13)
+        plt.ylabel('PM10 Concentration (µg/m³)', fontsize=13)
+        plt.gca().xaxis.set_major_formatter(DateFormatter('%Y-%m'))
+        plt.xticks(rotation=45)
+        plt.grid(True, linestyle='--', alpha=0.6)
+        plt.legend(fontsize=12)
+        plt.tight_layout()
+        plt.show()
+
+    except Exception as e:
+        print("❌ Final ETS Model fitting failed:", str(e))
