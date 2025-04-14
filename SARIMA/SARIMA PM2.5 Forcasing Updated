@@ -1,0 +1,75 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+# Step 1: Load the data
+file_path = r'E:\BSMRAAU Research\Work with  Bari sir\PM2.5.csv'  # Update file path for PM2.5
+df = pd.read_csv(file_path)
+
+# Step 2: Prepare the time series data
+df['date'] = pd.to_datetime(df['date'])
+df.set_index('date', inplace=True)
+
+# Use 'value' as the PM2.5 concentration data
+time_series = df['value'].astype(float)
+
+# Step 3: Decompose the time series (Trend + Seasonal only)
+result = seasonal_decompose(time_series, model='additive', period=365)
+
+# Plot the decomposition (without residual)
+plt.figure(figsize=(12, 6))
+plt.subplot(311)
+plt.plot(result.observed, label='Observed', color='black')
+plt.title('Observed PM2.5 Concentration')
+plt.grid(True)
+plt.legend(loc='upper left')
+
+plt.subplot(312)
+plt.plot(result.trend, label='Trend', color='orange')
+plt.title('Trend Component')
+plt.grid(True)
+plt.legend(loc='upper left')
+
+plt.subplot(313)
+plt.plot(result.seasonal, label='Seasonal', color='green')
+plt.title('Seasonal Component')
+plt.grid(True)
+plt.legend(loc='upper left')
+
+plt.tight_layout()
+plt.show()
+
+# Step 4: Fit a Seasonal ARIMA model
+p, d, q = 1, 0, 0
+P, D, Q, s = 1, 1, 0, 12
+
+model = SARIMAX(time_series, order=(p, d, q), seasonal_order=(P, D, Q, s))
+model_fit = model.fit(disp=False)
+
+# Step 5: Forecast
+forecast_steps = 48
+forecast = model_fit.get_forecast(steps=forecast_steps)
+confidence_intervals = forecast.conf_int()
+forecast_values = forecast.predicted_mean
+forecast_index = pd.date_range(start=time_series.index[-1], periods=forecast_steps + 1, freq='M')[1:]
+
+# Plot enhanced forecast
+plt.figure(figsize=(14, 6))
+plt.plot(time_series, label='Historical PM2.5', color='black', linewidth=1.8)
+plt.plot(forecast_index, forecast_values, label='Forecast PM2.5', color='royalblue', linestyle='--', linewidth=2)
+plt.fill_between(forecast_index, confidence_intervals.iloc[:, 0], confidence_intervals.iloc[:, 1], 
+                 color='skyblue', alpha=0.3, label='95% Confidence Interval')
+
+# Highlight forecast start point
+plt.axvline(x=forecast_index[0], color='red', linestyle='--', linewidth=1)
+plt.text(forecast_index[0], plt.ylim()[1]*0.95, 'Forecast Start', color='red')
+
+plt.title(f'PM2.5 Forecast using SARIMA({p},{d},{q})({P},{D},{Q})[{s}] Model', fontsize=14)
+plt.xlabel('Date', fontsize=12)
+plt.ylabel('PM2.5 Concentration (µg/m³)', fontsize=12)
+plt.grid(True, linestyle='--', alpha=0.5)
+plt.legend()
+plt.tight_layout()
+plt.show()
