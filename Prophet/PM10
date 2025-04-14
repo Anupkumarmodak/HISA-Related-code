@@ -1,0 +1,44 @@
+# Install Prophet (only needed once)
+try:
+    from prophet import Prophet
+except ImportError:
+    import sys
+    !{sys.executable} -m pip install prophet
+    from prophet import Prophet
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Step 1: Load the PM10 data
+file_path = r'E:\BSMRAAU Research\Work with  Bari sir\PM10.csv'  # Update path to PM10 CSV
+df = pd.read_csv(file_path)
+
+# Step 2: Prepare data for Prophet (rename columns)
+df['date'] = pd.to_datetime(df['date'])
+df = df.rename(columns={'date': 'ds', 'value': 'y'})
+df['y'] = df['y'].astype(float)
+
+# Step 3: Initialize and fit the Prophet model
+model = Prophet(daily_seasonality=False, yearly_seasonality=True, weekly_seasonality=True)
+model.fit(df)
+
+# Step 4: Create future dataframe
+forecast_steps = 48  # months
+future = model.make_future_dataframe(periods=forecast_steps, freq='M')
+
+# Step 5: Forecast
+forecast = model.predict(future)
+
+# Step 6: Plot forecast
+fig1 = model.plot(forecast)
+plt.title('PM10 Forecast Using Facebook Prophet', fontsize=16, fontweight='bold')
+plt.xlabel('Date')
+plt.ylabel('PM10 Concentration (µg/m³)')
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# Optional: Plot forecast components
+fig2 = model.plot_components(forecast)
+plt.tight_layout()
+plt.show()
