@@ -1,0 +1,135 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.optimizers import Adam
+
+# -------------------------------
+# Step 1: Load and Filter the Data
+# -------------------------------
+file_path = r'E:\BSMRAAU Research\Work with  Bari sir\Output(Hazrat Shahjalal International Airport)\NO2\NO2.csv'
+df = pd.read_csv(file_path)
+
+# Convert 'date' to datetime and set as index
+df['date'] = pd.to_datetime(df['date'])
+df.set_index('date', inplace=True)
+
+# Filter data from 2019 to 2024
+df = df.loc['2019-01-01':'2024-12-31']
+
+# -------------------------------
+# Step 2: Create Scaled Columns for Value and Seasonal Lag
+# -------------------------------
+scaler_value = MinMaxScaler(feature_range=(0, 1))
+df['value_scaled'] = scaler_value.fit_transform(df[['value']])
+
+# Create a seasonal lag (12-month lag) from the original values
+df['seasonal_lag'] = df['value'].shift(12)
+
+# Drop rows with NaN values (first 12 months will have NaN in seasonal_lag)
+df.dropna(inplace=True)
+
+# ✅ Fix: Rename 'seasonal_lag' to 'value' temporarily before transforming
+df['seasonal_lag_scaled'] = scaler_value.transform(df[['seasonal_lag']].rename(columns={'seasonal_lag': 'value'}))
+
+# ✅ Adjusted Seasonal Classification
+def assign_season_flag(month):
+    if month in [11, 12, 1, 2]:  # Peak Season (Nov-Feb)
+        return 1
+    elif month in [3, 9, 10]:    # Average Season (Mar, Sep, Oct)
+        return 0.5
+    else:                         # Off-Season (Apr-Aug)
+        return 0
+
+df['seasonal_flag'] = df.index.month.map(assign_season_flag)
+
+# -------------------------------
+# Step 3: Prepare the Dataset for Stacked LSTM
+# -------------------------------
+def create_sequences(df_data, sequence_length=12):
+    X, y = [], []
+    for i in range(len(df_data) - sequence_length):
+        seq_features = df_data.iloc[i:i+sequence_length][['value_scaled', 'seasonal_lag_scaled', 'seasonal_flag']].values
+        X.append(seq_features)
+        y.append(df_data.iloc[i+sequence_length]['value_scaled'])
+    return np.array(X), np.array(y)
+
+sequence_length = 12  # using 12 months (one year) as the window
+X, y = create_sequences(df, sequence_length)
+
+# Split into training and testing sets (80% train, 20% test)
+train_size = int(len(X) * 0.8)
+X_train, X_test = X[:train_size], X[train_size:]
+y_train, y_test = y[:train_size], y[train_size:]
+
+# -------------------------------
+# Step 4: Build and Compile the Stacked LSTM Model
+# -------------------------------
+model = Sequential([
+    LSTM(128, activation='relu', return_sequences=True, input_shape=(sequence_length, 3)),  # 3 features
+    Dropout(0.2),
+    LSTM(64, activation='relu', return_sequences=True),
+    Dropout(0.2),
+    LSTM(32, activation='relu'),  # Final LSTM layer without return_sequences
+    Dropout(0.2),
+    Dense(1)
+])
+
+model.compile(optimizer=Adam(learning_rate=0.001), loss='mse')
+
+# -------------------------------
+# Step 5: Train the Model with Early Stopping
+# -------------------------------
+early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+
+history = model.fit(X_train, y_train, epochs=100, batch_size=32, validation_data=(X_test, y_test),
+                    verbose=1, callbacks=[early_stopping])
+
+# -------------------------------
+# Step 6: Forecast Future Values (2025-2029) with Seasonal Awareness
+# -------------------------------
+forecast_input = X[-1].reshape(1, sequence_length, 3)  # Use the last known sequence
+forecast_steps = 60  # Forecasting 60 months (5 years)
+forecast_scaled = []  # Store forecasted values
+
+# Generate forecast dates for 2025-2029
+forecast_index = pd.date_range(start='2025-01-01', periods=forecast_steps, freq='M')
+
+# Save the seasonal component from the last known sequence
+last_known_seasonal = forecast_input[0, :, 0].copy()
+
+for i in range(forecast_steps):
+    pred = model.predict(forecast_input)
+    pred_value = pred[0, 0]
+    forecast_scaled.append(pred_value)
+
+    # Determine the seasonal lag for the new forecast
+    new_seasonal_lag = last_known_seasonal[i] if i < sequence_length else forecast_scaled[i - sequence_length]
+
+    # Get the seasonal flag for the forecasted month
+    new_seasonal_flag = assign_season_flag(forecast_index[i].month)
+
+    # Append new prediction to the sequence
+    new_input = np.array([[pred_value, new_seasonal_lag, new_seasonal_flag]]).reshape(1, 1, 3)
+    forecast_input = np.append(forecast_input[:, 1:, :], new_input, axis=1)
+
+# Convert forecasted values back to original scale
+forecast_values = scaler_value.inverse_transform(np.array(forecast_scaled).reshape(-1, 1))
+
+# -------------------------------
+# Step 7: Plot the Observed and Forecasted NO₂ Values
+# -------------------------------
+plt.figure(figsize=(12, 6))
+plt.plot(df.index, df['value'], label='Observed NO₂ (2019-2024)', color='green')
+plt.plot(forecast_index, forecast_values, label='Stacked LSTM Forecast (2025-2029)', color='blue')
+plt.title('NO₂ Concentration Forecast (2025-2029) Using Stacked LSTM with Seasonal Awareness')
+plt.xlabel('Year')
+plt.ylabel('NO₂ Concentration')
+plt.legend()
+plt.show()
+
+
+
