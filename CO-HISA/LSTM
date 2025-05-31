@@ -1,0 +1,88 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.optimizers import Adam
+
+# Step 1: Load the data
+file_path = r'E:\BSMRAAU Research\Work with  Bari sir\Output(Hazrat Shahjalal International Airport)\CO\CO.csv'
+df = pd.read_csv(file_path)
+
+# Step 2: Prepare the time series data
+df['date'] = pd.to_datetime(df['date'])
+df.set_index('date', inplace=True)
+
+# Use 'value' as the CO concentration data
+time_series = df['value'].astype(float)
+
+# Normalize the data
+scaler = MinMaxScaler(feature_range=(0, 1))
+time_series_scaled = scaler.fit_transform(time_series.values.reshape(-1, 1))
+
+# Step 3: Prepare the data for LSTM
+# Define a function to create sequences of data for LSTM
+def create_sequences(data, sequence_length):
+    x, y = [], []
+    for i in range(len(data) - sequence_length):
+        x.append(data[i:i+sequence_length])
+        y.append(data[i+sequence_length])
+    return np.array(x), np.array(y)
+
+# Set the sequence length and create sequences
+sequence_length = 12  # Can be set based on desired time horizon
+X, y = create_sequences(time_series_scaled, sequence_length)
+
+# Reshape X to be [samples, time steps, features] for LSTM
+X = X.reshape((X.shape[0], X.shape[1], 1))
+
+# Split the data into training and test sets
+train_size = int(len(X) * 0.8)
+X_train, X_test = X[:train_size], X[train_size:]
+y_train, y_test = y[:train_size], y[train_size:]
+
+# Step 4: Build and compile the LSTM model
+model = Sequential()
+model.add(LSTM(100, activation='relu', input_shape=(X_train.shape[1], 1), return_sequences=True))
+model.add(Dropout(0.2))  # Dropout for regularization
+model.add(LSTM(50, activation='relu'))
+model.add(Dropout(0.2))
+model.add(Dense(1))
+model.compile(optimizer=Adam(learning_rate=0.001), loss='mse')
+
+# Step 5: Train the model with early stopping
+early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+history = model.fit(X_train, y_train, epochs=100, batch_size=32, validation_data=(X_test, y_test), 
+                    verbose=1, callbacks=[early_stopping])
+
+# Step 6: Forecast future values
+# Prepare the last sequence in the test set for forecasting
+forecast_input = X_test[-1].reshape(1, sequence_length, 1)
+
+# Forecasting for the next 48 steps (4 years, assuming monthly data)
+forecast_steps = 48
+forecast_values = []
+
+for _ in range(forecast_steps):
+    forecast = model.predict(forecast_input)
+    forecast_values.append(forecast[0, 0])
+    # Update the input for the next prediction
+    forecast_input = np.append(forecast_input[:, 1:, :], forecast.reshape(1, 1, 1), axis=1)
+
+# Rescale the forecasted values back to the original scale
+forecast_values = scaler.inverse_transform(np.array(forecast_values).reshape(-1, 1))
+
+# Generate forecast index dates
+forecast_index = pd.date_range(start=time_series.index[-1], periods=forecast_steps + 1, freq='M')[1:]
+
+# Step 7: Plot the forecast with the observed data
+plt.figure(figsize=(12, 6))
+plt.plot(time_series, label='Observed', color='black')
+plt.plot(forecast_index, forecast_values, label='LSTM Forecast', color='blue')
+plt.title('Forecast using LSTM Model')
+plt.xlabel('Year')
+plt.ylabel('CO Concentration')
+plt.legend()
+plt.show()
